@@ -1,0 +1,91 @@
+// Point Wrangle
+// Input 0: mesh with the wrong point order (this geometry is modified)
+// Input 1: mesh with the correct point order (reference)
+//
+// Spare parms:
+//   uv_attrib            (string, default: uv)
+//   uv_tolerance         (float,  default: 1e-4)
+//
+// Output attrs on input 0:
+//   i@ref_ptnum      = matched point number from input 1
+//   i@uv_match_found = 1 if the UV match is within tolerance, else 0
+//   f@ref_uv_dist    = UV distance to the best match
+//
+// Typical usage:
+//   1. Run this wrangle on input 0.
+//   2. Sort SOP -> Point Sort -> By Attribute -> ref_ptnum
+//
+// Important:
+//   This is for matching/reordering points. A point wrangle does not rebuild
+//   primitive connectivity from input 1.
+
+function vector get_point_uv(int geo; int pt; string uv_name)
+{
+    if (haspointattrib(geo, uv_name))
+        return point(geo, uv_name, pt);
+
+    if (hasvertexattrib(geo, uv_name))
+    {
+        int verts[] = pointvertices(geo, pt);
+        if (len(verts) > 0)
+            return vertex(geo, uv_name, verts[0]);
+    }
+
+    return set(1e18, 1e18, 1e18);
+}
+
+string uv_name = chs("uv_attrib");
+float uv_tol = max(chf("uv_tolerance"), 1e-8);
+float uv_tol2 = uv_tol * uv_tol;
+
+vector my_uv = get_point_uv(0, @ptnum, uv_name);
+
+i@ref_ptnum = -1;
+i@uv_match_found = 0;
+f@ref_uv_dist = -1.0;
+
+if (my_uv.x > 1e17)
+{
+    setpointgroup(0, "uv_unmatched", @ptnum, 1, "set");
+    return;
+}
+
+int best_refpt = -1;
+float best_dist2 = 1e30;
+
+for (int refpt = 0; refpt < npoints(1); ++refpt)
+{
+    vector ref_uv = get_point_uv(1, refpt, uv_name);
+    if (ref_uv.x > 1e17)
+        continue;
+
+    vector delta = ref_uv - my_uv;
+    float dist2 = dot(delta, delta);
+
+    if (dist2 < best_dist2)
+    {
+        best_dist2 = dist2;
+        best_refpt = refpt;
+    }
+}
+
+i@ref_ptnum = best_refpt;
+
+if (best_refpt >= 0)
+{
+    f@ref_uv_dist = sqrt(best_dist2);
+
+    if (best_dist2 <= uv_tol2)
+    {
+        i@uv_match_found = 1;
+        setpointgroup(0, "uv_matched", @ptnum, 1, "set");
+    }
+    else
+    {
+        setpointgroup(0, "uv_unmatched", @ptnum, 1, "set");
+    }
+}
+else
+{
+    setpointgroup(0, "uv_unmatched", @ptnum, 1, "set");
+}
