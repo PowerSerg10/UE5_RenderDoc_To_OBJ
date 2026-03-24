@@ -50,6 +50,8 @@ The script will extract what it needs automatically, including:
 - `ViewOriginHigh`
 - `ViewOriginLow` when present
 
+These are the UE5 **LWC / translated-world** view values, not the older non-LWC `WorldToClip` style transforms.
+
 In RenderDoc, look here:
 
 - **Pipeline State**
@@ -63,6 +65,8 @@ Then:
 - save that file as `TO_EXPORT/view.csv`
 
 The script reads `TranslatedWorldToClip.row0` through `row3` and any available view-origin fields from that CSV.
+
+In practice, that means the exporter reconstructs positions from UE5's camera-relative / translated-world transform data, then adds back the view origin from the LWC split origin fields when they are present.
 
 Reference screenshot:
 
