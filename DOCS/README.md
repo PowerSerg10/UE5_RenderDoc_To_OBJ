@@ -164,9 +164,3 @@ Vertex positions are written with the Unreal-to-Houdini/Maya axis conversion bak
 
 This corresponds to remapping exported positions from `(x, y, z)` to `(x, z, y)`.
 
-If the CSV includes an `IDX` column, the script uses it to rebuild shared vertices and indexed triangle faces.
-
-If no usable index data is present, it falls back to grouping every 3 consecutive rows into one face.
-
-This is a **best-effort reconstruction**, not true index-buffer reconstruction, so it may look correct for some captures and wrong for others. Face assembly is always triangle-list based.
-
