@@ -36,6 +36,10 @@ This repo extends that work with a UE5-focused workflow, per-CSV OBJ export, ful
 - Right click the chosen table and export it as CSV.
 - If the object is split across multiple draws, export each matching mesh CSV.
 
+Reference screenshot for both `VS Input` and `VS Output` mesh CSV exports:
+
+![RenderDoc mesh CSV export workflow](mesh_csv_export.png)
+
 Put those mesh CSV files into `TO_EXPORT`.
 
 ### 3. Export the Unreal view buffer CSV
