@@ -4,12 +4,20 @@ Generate face-based `.obj` files from Unreal Engine RenderDoc CSV exports.
 
 This project is aimed at **Unreal Engine / UE5** captures where you export mesh data from RenderDoc. In normal use, the script auto-detects `VS Input` object-space exports from `ATTRIBUTE0.x/y/z`, and auto-detects `VS Output` exports from `SV_Position.x/y/z/w`.
 
+Compared with the original upstream tool, this repo is set up around a folder-based workflow, exports one OBJ per mesh CSV, and reads the full RenderDoc `View` constant-buffer CSV instead of requiring manual copy-paste of matrix rows.
+
 By default the script now uses these folders:
 
 - `TO_EXPORT` for input CSV files
 - `EXPORT_OUT` for generated output files
 
 The public repo keeps those folders as empty placeholders. Your local CSV exports, OBJ outputs, RenderDoc captures, virtualenv files, and Python cache files are ignored.
+
+## Credit
+
+This project is based on the original [pizza666/RenderDoc2obj](https://github.com/pizza666/RenderDoc2obj) by Jan-Dirk Lehde.
+
+This repo extends that work with a UE5-focused workflow, per-CSV OBJ export, full `view.csv` constant-buffer parsing, and the additional documentation in this repository.
 
 ## Unreal workflow
 
@@ -55,6 +63,10 @@ Then:
 - save that file as `TO_EXPORT/view.csv`
 
 The script reads `TranslatedWorldToClip.row0` through `row3` and any available view-origin fields from that CSV.
+
+Reference screenshot:
+
+![RenderDoc full View buffer export workflow](view_matrix.png)
 
 The repository does not include sample exported mesh CSVs or RenderDoc captures, because those files are usually large and project-specific.
 
