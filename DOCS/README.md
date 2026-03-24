@@ -9,6 +9,8 @@ By default the script now uses these folders:
 - `TO_EXPORT` for input CSV files
 - `EXPORT_OUT` for generated output files
 
+The public repo keeps those folders as empty placeholders. Your local CSV exports, OBJ outputs, RenderDoc captures, virtualenv files, and Python cache files are ignored.
+
 ## Unreal workflow
 
 ### 1. Capture a frame in RenderDoc
@@ -53,6 +55,8 @@ Then:
 - save that file as `TO_EXPORT/view.csv`
 
 The script reads `TranslatedWorldToClip.row0` through `row3` and any available view-origin fields from that CSV.
+
+The repository does not include sample exported mesh CSVs or RenderDoc captures, because those files are usually large and project-specific.
 
 Example `view.csv`:
 

@@ -90,26 +90,78 @@ def find_vs_input_uv_columns(fieldnames, position_columns):
     return None
 
 
-def load_view_proj_matrix(matrix_file):
-    matrix_rows = []
-    with open(matrix_file, 'r') as infile:
-        for raw_line in infile:
-            line = raw_line.strip()
-            if not line or '{' not in line or '}' not in line:
+def parse_csv_vector(raw_value, expected_size, field_name):
+    values = [float(value.strip()) for value in raw_value.split(',')]
+    if len(values) != expected_size:
+        raise ValueError(f"Could not read {expected_size} values for {field_name}")
+    return values
+
+
+def load_view_export_rows(matrix_file):
+    with open(matrix_file, 'r', newline='') as infile:
+        reader = csv.DictReader(infile)
+        required_columns = {'Name', 'Value'}
+        if reader.fieldnames is None or not required_columns.issubset(reader.fieldnames):
+            raise ValueError(
+                f"{matrix_file} must be a RenderDoc constant-buffer CSV export with Name and Value columns"
+            )
+
+        rows_by_name = {}
+        for row in reader:
+            row_name = (row.get('Name') or '').strip()
+            if not row_name:
                 continue
+            rows_by_name[row_name] = (row.get('Value') or '').strip()
+        return rows_by_name
 
-            row_data = line[line.index('{') + 1:line.index('}')]
-            values = [float(value.strip()) for value in row_data.split(',')]
-            if len(values) == 4:
-                matrix_rows.append(values)
 
-            if len(matrix_rows) == 4:
-                break
-
-    if len(matrix_rows) != 4:
-        raise ValueError(f"Could not read a 4x4 matrix from {matrix_file}")
-
+def load_view_proj_matrix(matrix_file):
+    rows_by_name = load_view_export_rows(matrix_file)
+    matrix_rows = []
+    for row_index in range(4):
+        row_name = f'TranslatedWorldToClip.row{row_index}'
+        row_value = rows_by_name.get(row_name)
+        if not row_value:
+            raise ValueError(f"Could not find {row_name} in {matrix_file}")
+        matrix_rows.append(parse_csv_vector(row_value, 4, row_name))
     return matrix_rows
+
+
+def load_view_origin(matrix_file):
+    rows_by_name = load_view_export_rows(matrix_file)
+    view_origin_high = None
+    view_origin_low = None
+    world_camera_origin = None
+    pre_view_translation = None
+
+    row_value = rows_by_name.get('ViewOriginHigh')
+    if row_value:
+        view_origin_high = parse_csv_vector(row_value, 3, 'ViewOriginHigh')
+
+    row_value = rows_by_name.get('ViewOriginLow')
+    if row_value:
+        view_origin_low = parse_csv_vector(row_value, 3, 'ViewOriginLow')
+
+    row_value = rows_by_name.get('WorldCameraOrigin')
+    if row_value:
+        world_camera_origin = parse_csv_vector(row_value, 3, 'WorldCameraOrigin')
+
+    row_value = rows_by_name.get('PreViewTranslation')
+    if row_value:
+        pre_view_translation = parse_csv_vector(row_value, 3, 'PreViewTranslation')
+
+    if view_origin_high is not None:
+        if view_origin_low is None:
+            view_origin_low = [0.0, 0.0, 0.0]
+        return [high + low for high, low in zip(view_origin_high, view_origin_low)]
+
+    if world_camera_origin is not None:
+        return world_camera_origin
+
+    if pre_view_translation is not None:
+        return [-value for value in pre_view_translation]
+
+    return None
 
 
 def invert_matrix(matrix):
@@ -152,7 +204,7 @@ def multiply_vector_matrix(vector, matrix):
     ]
 
 
-def get_vertex_position(row, position_columns, inv_view_proj=None):
+def get_vertex_position(row, position_columns, inv_view_proj=None, view_origin=None):
     position_values = [float(row[column]) for column in position_columns]
     if inv_view_proj is None:
         return position_values[:3]
@@ -160,7 +212,10 @@ def get_vertex_position(row, position_columns, inv_view_proj=None):
     world_coords = multiply_vector_matrix(position_values, inv_view_proj)
     if world_coords[3] != 0:
         world_coords = [value / world_coords[3] for value in world_coords]
-    return world_coords[:3]
+    vertex_position = world_coords[:3]
+    if view_origin is not None:
+        vertex_position = [value + origin for value, origin in zip(vertex_position, view_origin)]
+    return vertex_position
 
 
 def transform_vertex_for_obj(vertex_position):
@@ -203,13 +258,15 @@ def build_triangle_list_faces(vertex_indices, texture_coord_indices=None):
     return faces
 
 
-def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None):
+def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None, view_origin=None):
     has_idx = all('IDX' in row and row['IDX'].strip() for row in rows)
     if not has_idx:
         vertices = []
         texture_coords = []
         for row_index, row in enumerate(rows):
-            vertex_position = transform_vertex_for_obj(get_vertex_position(row, position_columns, inv_view_proj))
+            vertex_position = transform_vertex_for_obj(
+                get_vertex_position(row, position_columns, inv_view_proj, view_origin)
+            )
             vertices.append(vertex_position)
             vertex_uv = get_vertex_uv(row, uv_columns)
             if vertex_uv is not None:
@@ -232,7 +289,9 @@ def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None):
     ordered_texture_coord_indices = []
     for row_index, row in enumerate(rows):
         idx_value = int(row['IDX'])
-        vertex_position = transform_vertex_for_obj(get_vertex_position(row, position_columns, inv_view_proj))
+        vertex_position = transform_vertex_for_obj(
+            get_vertex_position(row, position_columns, inv_view_proj, view_origin)
+        )
         existing_position = vertex_positions_by_idx.get(idx_value)
         if existing_position is None:
             vertex_positions_by_idx[idx_value] = vertex_position
@@ -261,11 +320,13 @@ def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None):
     return vertices, texture_coords, faces
 
 
-def build_geometry_without_idx(rows, position_columns, inv_view_proj, uv_columns=None):
+def build_geometry_without_idx(rows, position_columns, inv_view_proj, uv_columns=None, view_origin=None):
     vertices = []
     texture_coords = []
     for row_index, row in enumerate(rows):
-        vertex_position = transform_vertex_for_obj(get_vertex_position(row, position_columns, inv_view_proj))
+        vertex_position = transform_vertex_for_obj(
+            get_vertex_position(row, position_columns, inv_view_proj, view_origin)
+        )
         vertices.append(vertex_position)
         vertex_uv = get_vertex_uv(row, uv_columns)
         if vertex_uv is not None:
@@ -283,10 +344,101 @@ def build_geometry_without_idx(rows, position_columns, inv_view_proj, uv_columns
     return vertices, texture_coords, faces
 
 
-def get_output_base_name(mesh_csv_files):
-    if len(mesh_csv_files) == 1:
-        return os.path.splitext(os.path.basename(mesh_csv_files[0]))[0]
-    return 'combined'
+def write_obj_file(obj_output_file, vertices, texture_coords, faces):
+    with open(obj_output_file, 'w') as objfile:
+        for v in vertices:
+            objfile.write(f"v {v[0]} {v[1]} {v[2]}\n")
+        for vt in texture_coords:
+            objfile.write(f"vt {vt[0]} {vt[1]}\n")
+        for f in faces:
+            if texture_coords:
+                objfile.write(
+                    f"f {f[0][0]}/{f[0][1]} {f[1][0]}/{f[1][1]} {f[2][0]}/{f[2][1]}\n"
+                )
+            else:
+                objfile.write(f"f {f[0]} {f[1]} {f[2]}\n")
+
+
+def process_csv_file(csv_file, args, requested_view_matrix_file):
+    print(f"Processing: {csv_file}")
+
+    with open(csv_file, 'r') as infile:
+        reader = csv.DictReader(infile, skipinitialspace=True)
+        if not reader.fieldnames:
+            print(f"Warning: {csv_file} has no headers!")
+            return False
+
+        export_type, position_columns, detection_message = detect_export_type(reader.fieldnames)
+        if position_columns is None:
+            print(f"Warning: {csv_file} does not contain usable position data, skipping.")
+            return False
+        if detection_message is not None:
+            print(detection_message)
+
+        print(
+            f"Detected {get_export_label(export_type)} export from headers; using position columns {position_columns}."
+        )
+
+        uv_columns = None
+        if export_type == VS_INPUT_EXPORT:
+            uv_columns = find_vs_input_uv_columns(reader.fieldnames, position_columns)
+            if uv_columns is not None:
+                print(f"Detected VS Input UV columns {uv_columns}.")
+
+        rows = list(reader)
+
+    if not rows:
+        print(f"Warning: {csv_file} has no data rows, skipping.")
+        return False
+
+    inv_view_proj = None
+    view_origin = None
+    if args.no_view_transform:
+        print("Skipping view transform because --no-view-transform was specified.")
+    elif export_type == VS_OUTPUT_EXPORT:
+        view_matrix_file = requested_view_matrix_file
+        if not os.path.exists(view_matrix_file):
+            print(f"Could not find {view_matrix_file} for detected VS Output export!")
+            return False
+
+        try:
+            view_proj_matrix = load_view_proj_matrix(view_matrix_file)
+            inv_view_proj = invert_matrix(view_proj_matrix)
+            view_origin = load_view_origin(view_matrix_file)
+        except ValueError as error:
+            print(f"Warning: {error}")
+            return False
+
+        print(f"Loaded view-projection matrix from {view_matrix_file}")
+        if view_origin is not None:
+            print(f"Loaded view origin {view_origin} from {view_matrix_file}")
+        else:
+            print("No view origin found; reconstructed VS Output positions will remain in translated-world space.")
+    else:
+        if args.view_matrix_file is not None:
+            print(f"Detected VS Input export; ignoring --view {requested_view_matrix_file}.")
+        elif os.path.exists(requested_view_matrix_file):
+            print(f"Detected VS Input export; ignoring {requested_view_matrix_file}.")
+        else:
+            print("Detected VS Input export; using raw position columns.")
+
+    print(f"Loaded {len(rows)} vertices from {csv_file}.")
+
+    vertices, texture_coords, faces = build_geometry(
+        rows,
+        position_columns,
+        inv_view_proj,
+        uv_columns,
+        view_origin,
+    )
+
+    output_base_name = os.path.splitext(os.path.basename(csv_file))[0]
+    obj_output_file = os.path.join(args.output_dir, f"{output_base_name}.obj")
+    write_obj_file(obj_output_file, vertices, texture_coords, faces)
+
+    print(f"Done: {len(vertices)} Vertices, {len(faces)} Faces")
+    print(f"Wrote {obj_output_file}")
+    return True
 
 
 def parse_args():
@@ -303,7 +455,7 @@ def parse_args():
         '--view',
         dest='view_matrix_file',
         default=None,
-        help='Optional path to the copied TranslatedWorldToClip matrix text. Used automatically for SV_Position / VS Output exports. Default: TO_EXPORT/view.csv'
+        help='Optional path to a RenderDoc constant-buffer CSV export containing TranslatedWorldToClip and view-origin fields. Used automatically for SV_Position / VS Output exports. Default: TO_EXPORT/view.csv'
     )
     parser.add_argument(
         '--no-view-transform',
@@ -353,99 +505,11 @@ if not csv_files:
     print("Could not find any mesh CSV files!")
     sys.exit(1)
 
-output_base_name = get_output_base_name(csv_files)
-obj_output_file = os.path.join(args.output_dir, f"{output_base_name}.obj")
-
-all_vertices = []
-headers = None
-export_type = None
-position_columns = None
-uv_columns = None
-
+processed_file_count = 0
 for csv_file in csv_files:
-    print(f"Processing: {csv_file}")
-    with open(csv_file, 'r') as infile:
-        reader = csv.DictReader(infile, skipinitialspace=True)
-        if not reader.fieldnames:
-            print(f"Warning: {csv_file} has no headers!")
-            continue
+    if process_csv_file(csv_file, args, requested_view_matrix_file):
+        processed_file_count += 1
 
-        current_export_type, current_position_columns, detection_message = detect_export_type(reader.fieldnames)
-        if current_position_columns is None:
-            print(f"Warning: {csv_file} does not contain usable position data, skipping.")
-            continue
-        if detection_message is not None:
-            print(detection_message)
-
-        if headers is None:
-            headers = reader.fieldnames
-            export_type = current_export_type
-            position_columns = current_position_columns
-            print(
-                f"Detected {get_export_label(export_type)} export from headers; using position columns {position_columns}."
-            )
-            if export_type == VS_INPUT_EXPORT:
-                uv_columns = find_vs_input_uv_columns(reader.fieldnames, position_columns)
-                if uv_columns is not None:
-                    print(f"Detected VS Input UV columns {uv_columns}.")
-        elif reader.fieldnames != headers:
-            print(f"Warning: {csv_file} has different headers!")
-            continue
-
-        for row in reader:
-            all_vertices.append(row)
-
-if not all_vertices or headers is None or position_columns is None or export_type is None:
+if processed_file_count == 0:
     print("Could not find any valid mesh CSV rows to process!")
     sys.exit(1)
-
-inv_view_proj = None
-view_matrix_file = None
-if args.no_view_transform:
-    print("Skipping view transform because --no-view-transform was specified.")
-elif export_type == VS_OUTPUT_EXPORT:
-    view_matrix_file = requested_view_matrix_file
-    if not os.path.exists(view_matrix_file):
-        print(f"Could not find {view_matrix_file} for detected VS Output export!")
-        sys.exit(1)
-
-    try:
-        view_proj_matrix = load_view_proj_matrix(view_matrix_file)
-        inv_view_proj = invert_matrix(view_proj_matrix)
-    except ValueError as error:
-        print(f"Warning: {error}")
-        sys.exit(1)
-
-    print(f"Loaded view-projection matrix from {view_matrix_file}")
-else:
-    if args.view_matrix_file is not None:
-        print(f"Detected VS Input export; ignoring --view {requested_view_matrix_file}.")
-    elif os.path.exists(requested_view_matrix_file):
-        print(f"Detected VS Input export; ignoring {requested_view_matrix_file}.")
-    else:
-        print("Detected VS Input export; using raw position columns.")
-
-print(f"Loaded {len(all_vertices)} vertices from {len(csv_files)} CSV file(s).")
-
-vertices, texture_coords, faces = build_geometry(
-    all_vertices,
-    position_columns,
-    inv_view_proj,
-    uv_columns,
-)
-
-with open(obj_output_file, 'w') as objfile:
-    for v in vertices:
-        objfile.write(f"v {v[0]} {v[1]} {v[2]}\n")
-    for vt in texture_coords:
-        objfile.write(f"vt {vt[0]} {vt[1]}\n")
-    for f in faces:
-        if texture_coords:
-            objfile.write(
-                f"f {f[0][0]}/{f[0][1]} {f[1][0]}/{f[1][1]} {f[2][0]}/{f[2][1]}\n"
-            )
-        else:
-            objfile.write(f"f {f[0]} {f[1]} {f[2]}\n")
-
-print(f"Done: {len(vertices)} Vertices, {len(faces)} Faces")
-print(f"Wrote {obj_output_file}")

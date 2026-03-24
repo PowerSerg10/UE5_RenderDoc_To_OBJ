@@ -1,0 +1,12 @@
+/.venv/
+/__pycache__/
+*.py[cod]
+
+/EXPORT_OUT/*
+!/EXPORT_OUT/.gitkeep
+
+/TO_EXPORT/*
+!/TO_EXPORT/.gitkeep
+
+/RDC_CAPTURES/*
+!/RDC_CAPTURES/.gitkeep
