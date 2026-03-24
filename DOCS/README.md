@@ -32,7 +32,7 @@ This repo extends that work with a UE5-focused workflow, per-CSV OBJ export, ful
 - Open the draw call in **Mesh Viewer**.
 - Choose the workflow you want:
   - **VS Input** = object-space mesh data. The script sees `ATTRIBUTE0.x/y/z`, ignores `view.csv`, and writes the raw mesh.
-  - **VS Output** = world-space workflow. The script sees `SV_Position.x/y/z/w`, requires `view.csv`, and uses it for reconstruction.
+  - **VS Output** = world-space workflow. The script sees `SV_Position.x/y/z/w`, requires `view.csv`, uses it for reconstruction, and reads UVs from `TEXCOORD*.x/.y` when present.
 - Right click the chosen table and export it as CSV.
 - If the object is split across multiple draws, export each matching mesh CSV.
 
@@ -157,10 +157,12 @@ The script writes the face-based OBJ export only.
 
 The OBJ file includes triangle faces, and if UVs are detected it also includes `vt` texture coordinates.
 
+For `VS Input` exports, UVs are detected from non-position `ATTRIBUTE*.x/.y` pairs.
+For `VS Output` exports, UVs are detected from `TEXCOORD*.x/.y` pairs.
+
 Vertex positions are written with the Unreal-to-Houdini/Maya axis conversion baked in:
 
 - rotate `X` by `90`
 - scale `Y` by `-1`
 
 This corresponds to remapping exported positions from `(x, y, z)` to `(x, z, y)`.
-

@@ -90,6 +90,35 @@ def find_vs_input_uv_columns(fieldnames, position_columns):
     return None
 
 
+def find_vs_output_uv_columns(fieldnames):
+    texcoord_components = {}
+    texcoord_order = []
+
+    for fieldname in fieldnames:
+        if fieldname is None:
+            continue
+
+        stripped_fieldname = fieldname.strip()
+        if not stripped_fieldname.startswith('TEXCOORD') or '.' not in stripped_fieldname:
+            continue
+
+        texcoord_base, texcoord_component = stripped_fieldname.rsplit('.', 1)
+        if texcoord_component not in {'x', 'y', 'z', 'w'}:
+            continue
+
+        if texcoord_base not in texcoord_components:
+            texcoord_components[texcoord_base] = {}
+            texcoord_order.append(texcoord_base)
+        texcoord_components[texcoord_base][texcoord_component] = fieldname
+
+    for texcoord_base in texcoord_order:
+        components = texcoord_components[texcoord_base]
+        if 'x' in components and 'y' in components:
+            return (components['x'], components['y'])
+
+    return None
+
+
 def parse_csv_vector(raw_value, expected_size, field_name):
     values = [float(value.strip()) for value in raw_value.split(',')]
     if len(values) != expected_size:
@@ -384,6 +413,10 @@ def process_csv_file(csv_file, args, requested_view_matrix_file):
             uv_columns = find_vs_input_uv_columns(reader.fieldnames, position_columns)
             if uv_columns is not None:
                 print(f"Detected VS Input UV columns {uv_columns}.")
+        elif export_type == VS_OUTPUT_EXPORT:
+            uv_columns = find_vs_output_uv_columns(reader.fieldnames)
+            if uv_columns is not None:
+                print(f"Detected VS Output UV columns {uv_columns}.")
 
         rows = list(reader)
 
