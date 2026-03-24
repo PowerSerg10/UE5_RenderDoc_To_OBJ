@@ -28,13 +28,17 @@ By default the script now uses these folders:
 
 Put those mesh CSV files into `TO_EXPORT`.
 
-### 3. Export the Unreal view-projection matrix
+### 3. Export the Unreal view buffer CSV
 
 This step is only needed for the **VS Output** workflow.
 
-For UE5, the matrix you usually want is:
+For UE5, export the full `View` / `ResolvedView` constant-buffer table as CSV.
+
+The script will extract what it needs automatically, including:
 
 - `View.TranslatedWorldToClip`
+- `ViewOriginHigh`
+- `ViewOriginLow` when present
 
 In RenderDoc, look here:
 
@@ -45,19 +49,23 @@ In RenderDoc, look here:
 
 Then:
 
-- right click the `TranslatedWorldToClip` matrix field
-- copy the full matrix value
-- paste that text into `TO_EXPORT/view.csv`
+- export the full table as CSV
+- save that file as `TO_EXPORT/view.csv`
 
-The script reads the first 4 matrix rows it finds in that copied text.
+The script reads `TranslatedWorldToClip.row0` through `row3` and any available view-origin fields from that CSV.
 
 Example `view.csv`:
 
 ```text
-TranslatedWorldToClip {0.15048, -0.62991, 0.00, -0.9141}
-{-0.98861, -0.0956, 0.00, -0.13873}
-{0.00018, 1.54366, 0.00, -0.38103}
-{0.00, 0.00, 3.00, 0.00} 0 float4x4 (row_major)
+Name,Value,Byte Offset,Type
+View,,0,FViewConstants
+TranslatedWorldToClip,,0,float4x4 (row_major)
+TranslatedWorldToClip.row0,"-0.15199, -0.26693, 0.00, -0.97971",,float4
+TranslatedWorldToClip.row1,"-1.13112, 0.03564, 0.00, 0.13076",,float4
+TranslatedWorldToClip.row2,"-0.00015, 1.74686, 0.00, -0.15188",,float4
+TranslatedWorldToClip.row3,"0.00, 0.00, 3.00, 0.00",,float4
+ViewOriginHigh,"93.91851, -17.43378, 165.79129",960,float3
+ViewOriginLow,"-1.18864E-06, -8.30921E-07, 4.45942E-06",1088,float3
 ```
 
 ## Usage
@@ -116,9 +124,12 @@ If you exported one mesh CSV, for example `MyMesh.csv`, the script writes to `EX
 
 ### Multiple mesh CSV inputs
 
-If you exported multiple mesh CSVs, they are combined in memory and the script writes to `EXPORT_OUT`:
+If you exported multiple mesh CSVs, the script writes one OBJ per CSV to `EXPORT_OUT`.
 
-- `combined.obj`
+For example:
+
+- `mesh_a.csv` -> `mesh_a.obj`
+- `mesh_b.csv` -> `mesh_b.obj`
 
 The script writes the face-based OBJ export only.
 
@@ -130,7 +141,6 @@ Vertex positions are written with the Unreal-to-Houdini/Maya axis conversion bak
 - scale `Y` by `-1`
 
 This corresponds to remapping exported positions from `(x, y, z)` to `(x, z, y)`.
-
 
 If the CSV includes an `IDX` column, the script uses it to rebuild shared vertices and indexed triangle faces.
 
