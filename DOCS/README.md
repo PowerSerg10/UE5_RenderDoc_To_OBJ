@@ -1,4 +1,4 @@
-# RenderDoc2obj
+# UE5 RenderDoc2obj
 
 Generate face-based `.obj` files from Unreal Engine RenderDoc CSV exports.
 
@@ -71,8 +71,6 @@ In practice, that means the exporter reconstructs positions from UE5's camera-re
 Reference screenshot:
 
 ![RenderDoc full View buffer export workflow](view_matrix.png)
-
-The repository does not include sample exported mesh CSVs or RenderDoc captures, because those files are usually large and project-specific.
 
 Example `view.csv`:
 
