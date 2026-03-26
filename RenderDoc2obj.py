@@ -477,7 +477,6 @@ def process_csv_file(csv_file, args, requested_view_matrix_file):
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Generate OBJ files from Unreal Engine RenderDoc CSV exports. The script normally auto-detects VS Input exports from ATTRIBUTE0.x/y/z and VS Output exports from SV_Position.x/y/z/w.',
-        color=False,
     )
     parser.add_argument(
         'mesh_csv_files',
