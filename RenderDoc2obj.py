@@ -16,7 +16,6 @@ def detect_export_type(fieldnames):
         for fieldname in fieldnames
         if fieldname is not None
     }
-    normalized_fieldnames = [fieldname.strip() for fieldname in fieldnames if fieldname is not None]
 
     vs_output_candidates = [
         ('SV_POSITION.x', 'SV_POSITION.y', 'SV_POSITION.z', 'SV_POSITION.w'),
@@ -29,18 +28,6 @@ def detect_export_type(fieldnames):
     vs_input_columns = ('ATTRIBUTE0.x', 'ATTRIBUTE0.y', 'ATTRIBUTE0.z')
     if all(column in stripped_to_original for column in vs_input_columns):
         return VS_INPUT_EXPORT, tuple(stripped_to_original[column] for column in vs_input_columns), None
-
-    if len(normalized_fieldnames) >= 5 and normalized_fieldnames[0] == 'VTX' and normalized_fieldnames[1] == 'IDX':
-        fallback_columns = tuple(fieldnames[2:5])
-        return VS_INPUT_EXPORT, fallback_columns, (
-            f"Info: Falling back to VS Input-style position columns {fallback_columns}."
-        )
-
-    if len(fieldnames) >= 3:
-        fallback_columns = tuple(fieldnames[:3])
-        return VS_INPUT_EXPORT, fallback_columns, (
-            f"Info: Falling back to raw position columns {fallback_columns}."
-        )
 
     return None, None, None
 
@@ -92,7 +79,6 @@ def find_vs_input_uv_columns(fieldnames, position_columns):
 
 def find_vs_output_uv_columns(fieldnames):
     texcoord_components = {}
-    texcoord_order = []
 
     for fieldname in fieldnames:
         if fieldname is None:
@@ -108,13 +94,37 @@ def find_vs_output_uv_columns(fieldnames):
 
         if texcoord_base not in texcoord_components:
             texcoord_components[texcoord_base] = {}
-            texcoord_order.append(texcoord_base)
         texcoord_components[texcoord_base][texcoord_component] = fieldname
 
-    for texcoord_base in texcoord_order:
+    def get_texcoord_sort_key(texcoord_base):
+        suffix = ''
+        semantic_index = float('inf')
+
+        if texcoord_base.startswith('TEXCOORD'):
+            suffix = texcoord_base[len('TEXCOORD'):]
+            numeric_prefix = []
+            for character in suffix:
+                if character.isdigit():
+                    numeric_prefix.append(character)
+                else:
+                    break
+
+            if numeric_prefix:
+                semantic_index = int(''.join(numeric_prefix))
+                suffix = suffix[len(numeric_prefix):]
+
+        has_suffix = 1 if suffix else 0
+        return (semantic_index, has_suffix, texcoord_base)
+
+    candidate_bases = [
+        texcoord_base
+        for texcoord_base, components in texcoord_components.items()
+        if 'x' in components and 'y' in components
+    ]
+
+    for texcoord_base in sorted(candidate_bases, key=get_texcoord_sort_key):
         components = texcoord_components[texcoord_base]
-        if 'x' in components and 'y' in components:
-            return (components['x'], components['y'])
+        return (components['x'], components['y'])
 
     return None
 
@@ -249,7 +259,7 @@ def get_vertex_position(row, position_columns, inv_view_proj=None, view_origin=N
 
 def transform_vertex_for_obj(vertex_position):
     x_value, y_value, z_value = vertex_position
-    return [x_value, z_value, y_value]
+    return [-y_value, z_value, x_value]
 
 
 def get_vertex_uv(row, uv_columns):
@@ -290,27 +300,7 @@ def build_triangle_list_faces(vertex_indices, texture_coord_indices=None):
 def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None, view_origin=None):
     has_idx = all('IDX' in row and row['IDX'].strip() for row in rows)
     if not has_idx:
-        vertices = []
-        texture_coords = []
-        for row_index, row in enumerate(rows):
-            vertex_position = transform_vertex_for_obj(
-                get_vertex_position(row, position_columns, inv_view_proj, view_origin)
-            )
-            vertices.append(vertex_position)
-            vertex_uv = get_vertex_uv(row, uv_columns)
-            if vertex_uv is not None:
-                texture_coords.append(vertex_uv)
-            if row_index < 5:
-                print(f"Debug: Vertex {row_index}: {vertex_position[0]}, {vertex_position[1]}, {vertex_position[2]}")
-
-        texture_coord_indices = None
-        if uv_columns is not None:
-            texture_coord_indices = list(range(1, len(texture_coords) + 1))
-        faces = build_triangle_list_faces(
-            list(range(1, len(vertices) + 1)),
-            texture_coord_indices,
-        )
-        return vertices, texture_coords, faces
+        raise ValueError('Mesh CSV is missing IDX data')
 
     vertex_positions_by_idx = {}
     ordered_idx_values = []
@@ -325,8 +315,7 @@ def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None, view_
         if existing_position is None:
             vertex_positions_by_idx[idx_value] = vertex_position
         elif not positions_match(existing_position, vertex_position):
-            print(f"Warning: IDX {idx_value} maps to multiple positions, falling back to row-based faces.")
-            return build_geometry_without_idx(rows, position_columns, inv_view_proj, uv_columns)
+            raise ValueError(f'IDX {idx_value} maps to multiple positions')
 
         ordered_idx_values.append(idx_value)
         vertex_uv = get_vertex_uv(row, uv_columns)
@@ -346,30 +335,6 @@ def build_geometry(rows, position_columns, inv_view_proj, uv_columns=None, view_
     if uv_columns is not None:
         texture_coord_indices = ordered_texture_coord_indices
     faces = build_triangle_list_faces(ordered_vertex_indices, texture_coord_indices)
-    return vertices, texture_coords, faces
-
-
-def build_geometry_without_idx(rows, position_columns, inv_view_proj, uv_columns=None, view_origin=None):
-    vertices = []
-    texture_coords = []
-    for row_index, row in enumerate(rows):
-        vertex_position = transform_vertex_for_obj(
-            get_vertex_position(row, position_columns, inv_view_proj, view_origin)
-        )
-        vertices.append(vertex_position)
-        vertex_uv = get_vertex_uv(row, uv_columns)
-        if vertex_uv is not None:
-            texture_coords.append(vertex_uv)
-        if row_index < 5:
-            print(f"Debug: Vertex {row_index}: {vertex_position[0]}, {vertex_position[1]}, {vertex_position[2]}")
-
-    texture_coord_indices = None
-    if uv_columns is not None:
-        texture_coord_indices = list(range(1, len(texture_coords) + 1))
-    faces = build_triangle_list_faces(
-        list(range(1, len(vertices) + 1)),
-        texture_coord_indices,
-    )
     return vertices, texture_coords, faces
 
 
@@ -401,9 +366,6 @@ def process_csv_file(csv_file, args, requested_view_matrix_file):
         if position_columns is None:
             print(f"Warning: {csv_file} does not contain usable position data, skipping.")
             return False
-        if detection_message is not None:
-            print(detection_message)
-
         print(
             f"Detected {get_export_label(export_type)} export from headers; using position columns {position_columns}."
         )
@@ -457,13 +419,17 @@ def process_csv_file(csv_file, args, requested_view_matrix_file):
 
     print(f"Loaded {len(rows)} vertices from {csv_file}.")
 
-    vertices, texture_coords, faces = build_geometry(
-        rows,
-        position_columns,
-        inv_view_proj,
-        uv_columns,
-        view_origin,
-    )
+    try:
+        vertices, texture_coords, faces = build_geometry(
+            rows,
+            position_columns,
+            inv_view_proj,
+            uv_columns,
+            view_origin,
+        )
+    except ValueError as error:
+        print(f"Warning: {error}")
+        return False
 
     output_base_name = os.path.splitext(os.path.basename(csv_file))[0]
     obj_output_file = os.path.join(args.output_dir, f"{output_base_name}.obj")
@@ -476,7 +442,7 @@ def process_csv_file(csv_file, args, requested_view_matrix_file):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Generate OBJ files from Unreal Engine RenderDoc CSV exports. The script normally auto-detects VS Input exports from ATTRIBUTE0.x/y/z and VS Output exports from SV_Position.x/y/z/w.',
+        description='Generate OBJ files from Unreal Engine RenderDoc CSV exports. The script auto-detects VS Input exports from ATTRIBUTE0.x/y/z and VS Output exports from SV_Position.x/y/z/w.',
     )
     parser.add_argument(
         'mesh_csv_files',

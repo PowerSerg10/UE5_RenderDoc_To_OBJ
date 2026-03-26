@@ -158,11 +158,8 @@ The script writes the face-based OBJ export only.
 The OBJ file includes triangle faces, and if UVs are detected it also includes `vt` texture coordinates.
 
 For `VS Input` exports, UVs are detected from non-position `ATTRIBUTE*.x/.y` pairs.
-For `VS Output` exports, UVs are detected from `TEXCOORD*.x/.y` pairs.
+For `VS Output` exports, UVs are detected from `TEXCOORD*.x/.y` pairs, preferring the lowest-numbered semantic such as `TEXCOORD0.x/.y` over higher-numbered or suffixed variants like `TEXCOORD10_centroid.x/.y`.
 
-Vertex positions are written with the Unreal-to-Houdini/Maya axis conversion baked in:
+Vertex positions are written with the Unreal-to-Houdini/Maya axis conversion baked in so meshes face the `Z` axis in the exported OBJ.
 
-- rotate `X` by `90`
-- scale `Y` by `-1`
-
-This corresponds to remapping exported positions from `(x, y, z)` to `(x, z, y)`.
+This corresponds to remapping exported positions from `(x, y, z)` to `(-y, z, x)`.
